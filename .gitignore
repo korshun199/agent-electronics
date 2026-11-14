@@ -1,0 +1,27 @@
+# Локальные ключи и конфигурация учётных записей
+/.aws/
+/.codex/
+/.agents/
+.env
+.env.*
+*.pem
+*.key
+
+# Локальная база чатов, кэш и резервные копии
+**/__pycache__/
+**/.venv/
+**/data/*.sqlite3*
+**/.agent-backups/
+**/.agent-build/
+
+# Сгенерированные QEMU-образы, дампы и временные рабочие данные
+/rpi4-qemu-emulation/work/
+/rpi4-qemu-emulation/artifacts/
+/rpi4-qemu-emulation/RAM_SNAPSHOT_2026-11-13.md
+*.img
+*.qcow2
+*.bin
+*.cpio
+*.cpio.*
+*.ko
+*.so
