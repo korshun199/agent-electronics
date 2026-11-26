@@ -1,0 +1,12 @@
+diff --git a/configs/HAKRCF405V2/config.h b/configs/HAKRCF405V2/config.h
+index c9cd3a7..38c9ac3 100644
+--- a/configs/HAKRCF405V2/config.h
++++ b/configs/HAKRCF405V2/config.h
+@@ -24,6 +24,7 @@
+ #define FC_TARGET_MCU     STM32F405
+ 
+ #define BOARD_NAME        HAKRCF405V2
++#define USE_MASHA_OPERATOR_KEYBOARD 1 // Режим USB-клавиатуры с управлением по UART4
+ #define MANUFACTURER_ID   HARC
+ 
+ #define USE_GYRO

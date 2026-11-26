@@ -13,6 +13,10 @@
 **/data/*.sqlite3*
 **/.agent-backups/
 **/.agent-build/
+/backups/flight-controller/
+/firmware/HAKRCF405V2_keyboard/
+/.agent/operator-*.jpg
+/.agent/operator-*.png
 
 # Сгенерированные QEMU-образы, дампы и временные рабочие данные
 /rpi4-qemu-emulation/work/

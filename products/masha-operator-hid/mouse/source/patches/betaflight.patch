@@ -1,0 +1,361 @@
+diff --git a/lib/main/STM32_USB_Device_Library/Class/hid/inc/usbd_hid_core.h b/lib/main/STM32_USB_Device_Library/Class/hid/inc/usbd_hid_core.h
+index a5dade56f..be5fffbca 100644
+--- a/lib/main/STM32_USB_Device_Library/Class/hid/inc/usbd_hid_core.h
++++ b/lib/main/STM32_USB_Device_Library/Class/hid/inc/usbd_hid_core.h
+@@ -48,7 +48,13 @@
+ #define USB_HID_CONFIG_DESC_SIZ       34
+ #define USB_HID_DESC_SIZ              9
+ 
++#ifdef USE_MASHA_OPERATOR_MOUSE
++#define HID_MOUSE_REPORT_DESC_SIZE    101
++#elif defined(USE_MASHA_OPERATOR_KEYBOARD)
++#define HID_MOUSE_REPORT_DESC_SIZE    45
++#else
+ #define HID_MOUSE_REPORT_DESC_SIZE    54
++#endif
+ 
+ #define HID_DESCRIPTOR_TYPE           0x21
+ #define HID_REPORT_DESC               0x22
+diff --git a/lib/main/STM32_USB_Device_Library/Class/hid/src/usbd_hid_core.c b/lib/main/STM32_USB_Device_Library/Class/hid/src/usbd_hid_core.c
+index 84059eb79..571edf030 100644
+--- a/lib/main/STM32_USB_Device_Library/Class/hid/src/usbd_hid_core.c
++++ b/lib/main/STM32_USB_Device_Library/Class/hid/src/usbd_hid_core.c
+@@ -238,6 +238,23 @@ __ALIGN_BEGIN static uint8_t USBD_HID_Desc[USB_HID_DESC_SIZ] __ALIGN_END=
+ #endif /* USB_OTG_HS_INTERNAL_DMA_ENABLED */
+ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE] __ALIGN_END =
+ {
++#ifdef USE_MASHA_OPERATOR_MOUSE
++  /* Report 1: keyboard; Report 2: relative mouse with three buttons and wheel. */
++  0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01,
++  0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00,
++  0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02,
++  0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x06,
++  0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07,
++  0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xC0,
++  0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02,
++  0x09, 0x01, 0xA1, 0x00, 0x05, 0x09, 0x19, 0x01,
++  0x29, 0x03, 0x15, 0x00, 0x25, 0x01, 0x95, 0x03,
++  0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05,
++  0x81, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31,
++  0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08,
++  0x95, 0x03, 0x81, 0x06, 0xC0, 0xC0
++#elif defined(USE_MASHA_OPERATOR_KEYBOARD)
++#else
+ 0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
+ 0x09, 0x05,                    // USAGE (Game Pad)
+ 0xa1, 0x01,                    // COLLECTION (Application)
+@@ -266,6 +283,7 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE] __
+ 0x81, 0x02,                    //     INPUT (Data,Var,Abs)
+ 0xc0,                          //   END_COLLECTION
+ 0xc0                           /*     END_COLLECTION	             */
++#endif
+ };
+ 
+ /**
+diff --git a/lib/main/STM32_USB_Device_Library/Class/hid_cdc_wrapper/src/usbd_hid_cdc_wrapper.c b/lib/main/STM32_USB_Device_Library/Class/hid_cdc_wrapper/src/usbd_hid_cdc_wrapper.c
+index 032223f5f..98f1f9cff 100644
+--- a/lib/main/STM32_USB_Device_Library/Class/hid_cdc_wrapper/src/usbd_hid_cdc_wrapper.c
++++ b/lib/main/STM32_USB_Device_Library/Class/hid_cdc_wrapper/src/usbd_hid_cdc_wrapper.c
+@@ -184,8 +184,16 @@ __ALIGN_BEGIN static uint8_t USBD_HID_CDC_CfgDesc[USB_HID_CDC_CONFIG_DESC_SIZ] _
+   0x00,         /*bAlternateSetting: Alternate setting*/
+   0x01,         /*bNumEndpoints*/
+   0x03,         /*bInterfaceClass: HID*/
+-  0x00,         /*bInterfaceSubClass : 1=BOOT, 0=no boot*/
+-  0x00,         /*nInterfaceProtocol : 0=none, 1=keyboard, 2=mouse*/
++#ifdef USE_MASHA_OPERATOR_MOUSE
++  0x00,         /* report-only composite HID interface */
++  0x00,
++#elif defined(USE_MASHA_OPERATOR_KEYBOARD)
++  0x01,         /* boot-интерфейс клавиатуры */
++  0x01,         /* протокол клавиатуры */
++#else
++  0x00,         /* обычный HID-интерфейс */
++  0x00,         /* протокол не задан */
++#endif
+   0,            /*iInterface: Index of string descriptor*/
+   /******************** Descriptor of Joystick Mouse HID ********************/
+   /* 18 */
+diff --git a/src/main/drivers/stm32/vcpf4/usbd_conf.h b/src/main/drivers/stm32/vcpf4/usbd_conf.h
+index e29b01958..96cbf6bc4 100644
+--- a/src/main/drivers/stm32/vcpf4/usbd_conf.h
++++ b/src/main/drivers/stm32/vcpf4/usbd_conf.h
+@@ -41,7 +41,13 @@
+ #define CDC_CMD_EP                      0x82  /* EP2 for CDC commands */
+ 
+ #define HID_IN_EP                       0x83
++#ifdef USE_MASHA_OPERATOR_MOUSE
++#define HID_IN_PACKET                   16
++#elif defined(USE_MASHA_OPERATOR_KEYBOARD)
++#define HID_IN_PACKET                   8
++#else
+ #define HID_IN_PACKET                   9
++#endif
+ 
+ /* CDC Endpoints parameters: you can fine tune these values depending on the needed baudrates and performance. */
+ #ifdef USE_USB_OTG_HS
+diff --git a/src/main/fc/tasks.c b/src/main/fc/tasks.c
+index 09f03e570..4cb87f7df 100644
+--- a/src/main/fc/tasks.c
++++ b/src/main/fc/tasks.c
+@@ -205,9 +205,7 @@ static void taskUpdateRxMain(timeUs_t currentTimeUs)
+         updateArmingStatus();
+ 
+ #ifdef USE_USB_CDC_HID
+-        if (!ARMING_FLAG(ARMED)) {
+-            sendRcDataToHid();
+-        }
++        sendRcDataToHid();
+ #endif
+         rxState = RX_STATE_CHECK;
+         break;
+diff --git a/src/main/io/usb_cdc_hid.c b/src/main/io/usb_cdc_hid.c
+index 0af76b6b9..fee95f30b 100644
+--- a/src/main/io/usb_cdc_hid.c
++++ b/src/main/io/usb_cdc_hid.c
+@@ -20,15 +20,21 @@
+ 
+ 
+ #include <stdbool.h>
++#include <string.h>
+ 
+ #include "platform.h"
+ 
+ #ifdef USE_USB_CDC_HID
+ 
+ #include "common/maths.h"
++#include "drivers/time.h"
+ #include "fc/rc_controls.h"
++#include "fc/runtime_config.h"
+ #include "rx/rx.h"
+ #include "pg/usb.h"
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#include "io/serial.h"
++#endif
+ #include "sensors/battery.h"
+ #include "usb_cdc_hid.h"
+ 
+@@ -59,6 +65,182 @@ const uint8_t hidChannelMapping[] = {
+     AUX12     // Button 8
+ };
+ 
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#define OPERATOR_KEY_FRAME_SIZE 4
++#define OPERATOR_MOUSE_FRAME_SIZE 6
++#define OPERATOR_FRAME_MAGIC_KEY 0xA5
++#define OPERATOR_FRAME_MAGIC_MOUSE 0xA6
++#define OPERATOR_KEY_MIN 0x04
++#define OPERATOR_KEY_MAX 0x38
++#define OPERATOR_MODIFIERS_ALLOWED 0x07
++#define OPERATOR_MOUSE_BUTTONS_ALLOWED 0x07
++#define OPERATOR_REPORT_HOLD_MS 30
++#define OPERATOR_KEYBOARD_REPORT_ID 0x01
++#define OPERATOR_MOUSE_REPORT_ID 0x02
++#define OPERATOR_REPORT_MAX_SIZE 9
++
++typedef enum {
++    OPERATOR_REPORT_IDLE = 0,
++    OPERATOR_REPORT_PRESSED,
++    OPERATOR_REPORT_RELEASED
++} operatorReportState_e;
++
++typedef enum {
++    OPERATOR_REPORT_KEYBOARD = 0,
++    OPERATOR_REPORT_MOUSE
++} operatorReportType_e;
++
++static serialPort_t *operatorSerialPort;
++static uint8_t operatorFrame[OPERATOR_MOUSE_FRAME_SIZE];
++static uint8_t operatorFrameLength;
++static uint8_t operatorFrameExpectedLength;
++static uint8_t operatorReport[OPERATOR_REPORT_MAX_SIZE];
++static uint8_t operatorReleaseReport[OPERATOR_REPORT_MAX_SIZE];
++static uint8_t operatorReportLength;
++static operatorReportState_e operatorReportState;
++static operatorReportType_e operatorReportType;
++static timeMs_t operatorReportDeadline;
++
++static void operatorSendAck(const char *ack)
++{
++    if (operatorSerialPort) {
++        serialWriteBuf(operatorSerialPort, (const uint8_t *)ack, 3);
++    }
++}
++
++static void operatorBeginReport(operatorReportType_e type, uint8_t length)
++{
++    operatorReportType = type;
++    operatorReportLength = length;
++    memset(operatorReleaseReport, 0, sizeof(operatorReleaseReport));
++    operatorReleaseReport[0] = type == OPERATOR_REPORT_KEYBOARD ? OPERATOR_KEYBOARD_REPORT_ID : OPERATOR_MOUSE_REPORT_ID;
++    sendReport(operatorReport, operatorReportLength);
++    operatorReportState = OPERATOR_REPORT_PRESSED;
++    operatorReportDeadline = millis() + OPERATOR_REPORT_HOLD_MS;
++}
++
++static void operatorServiceReport(void)
++{
++    if (operatorReportState == OPERATOR_REPORT_IDLE || (int32_t)(millis() - operatorReportDeadline) < 0) {
++        return;
++    }
++
++    if (operatorReportState == OPERATOR_REPORT_PRESSED) {
++        sendReport(operatorReleaseReport, operatorReportLength);
++        operatorReportState = OPERATOR_REPORT_RELEASED;
++        operatorReportDeadline = millis() + OPERATOR_REPORT_HOLD_MS;
++        return;
++    }
++
++    operatorReportState = OPERATOR_REPORT_IDLE;
++    operatorSendAck("ACK");
++}
++
++static void operatorConsumeKeyFrame(void)
++{
++    const uint8_t modifier = operatorFrame[1];
++    const uint8_t key = operatorFrame[2];
++    const uint8_t checksum = operatorFrame[0] ^ modifier ^ key;
++    if (checksum != operatorFrame[3] || (modifier & ~OPERATOR_MODIFIERS_ALLOWED) != 0 ||
++        key < OPERATOR_KEY_MIN || key > OPERATOR_KEY_MAX || operatorReportState != OPERATOR_REPORT_IDLE) {
++        operatorSendAck("ERR");
++        return;
++    }
++
++    memset(operatorReport, 0, sizeof(operatorReport));
++    operatorReport[0] = OPERATOR_KEYBOARD_REPORT_ID;
++    operatorReport[1] = modifier;
++    operatorReport[3] = key;
++    operatorBeginReport(OPERATOR_REPORT_KEYBOARD, 9);
++}
++
++static void operatorConsumeMouseFrame(void)
++{
++    const uint8_t buttons = operatorFrame[1];
++    const int8_t deltaX = (int8_t)operatorFrame[2];
++    const int8_t deltaY = (int8_t)operatorFrame[3];
++    const int8_t wheel = (int8_t)operatorFrame[4];
++    const uint8_t checksum = operatorFrame[0] ^ buttons ^ operatorFrame[2] ^ operatorFrame[3] ^ operatorFrame[4];
++    if (checksum != operatorFrame[5] || (buttons & ~OPERATOR_MOUSE_BUTTONS_ALLOWED) != 0 ||
++        deltaX == INT8_MIN || deltaY == INT8_MIN || wheel == INT8_MIN ||
++        (buttons == 0 && deltaX == 0 && deltaY == 0 && wheel == 0) ||
++        operatorReportState != OPERATOR_REPORT_IDLE) {
++        operatorSendAck("ERR");
++        return;
++    }
++
++    memset(operatorReport, 0, sizeof(operatorReport));
++    operatorReport[0] = OPERATOR_MOUSE_REPORT_ID;
++    operatorReport[1] = buttons;
++    operatorReport[2] = (uint8_t)deltaX;
++    operatorReport[3] = (uint8_t)deltaY;
++    operatorReport[4] = (uint8_t)wheel;
++    operatorBeginReport(OPERATOR_REPORT_MOUSE, 5);
++}
++
++static void operatorConsumeByte(uint8_t value)
++{
++    if (operatorFrameLength == 0) {
++        if (value == OPERATOR_FRAME_MAGIC_KEY) {
++            operatorFrameExpectedLength = OPERATOR_KEY_FRAME_SIZE;
++        } else if (value == OPERATOR_FRAME_MAGIC_MOUSE) {
++            operatorFrameExpectedLength = OPERATOR_MOUSE_FRAME_SIZE;
++        } else {
++            return;
++        }
++    }
++
++    operatorFrame[operatorFrameLength++] = value;
++    if (operatorFrameLength < operatorFrameExpectedLength) {
++        return;
++    }
++
++    const uint8_t frameType = operatorFrame[0];
++    operatorFrameLength = 0;
++    operatorFrameExpectedLength = 0;
++    if (frameType == OPERATOR_FRAME_MAGIC_KEY) {
++        operatorConsumeKeyFrame();
++    } else {
++        operatorConsumeMouseFrame();
++    }
++}
++
++void sendRcDataToHid(void)
++{
++    if (!usbIsConnected()) {
++        if (operatorReportState != OPERATOR_REPORT_IDLE) {
++            operatorReportState = OPERATOR_REPORT_IDLE;
++            operatorSendAck("ERR");
++        }
++        operatorFrameLength = 0;
++        operatorFrameExpectedLength = 0;
++        return;
++    }
++    if (!operatorSerialPort) {
++        operatorSerialPort = openSerialPort(SERIAL_PORT_UART4, FUNCTION_NONE, NULL, NULL, 115200, MODE_RXTX, SERIAL_NOT_INVERTED);
++        if (!operatorSerialPort) {
++            return;
++        }
++    }
++    operatorServiceReport();
++    if (ARMING_FLAG(ARMED)) {
++        bool commandDiscarded = false;
++        while (serialRxBytesWaiting(operatorSerialPort)) {
++            (void)serialRead(operatorSerialPort);
++            commandDiscarded = true;
++        }
++        operatorFrameLength = 0;
++        operatorFrameExpectedLength = 0;
++        if (commandDiscarded) {
++            operatorSendAck("ARM");
++        }
++        return;
++    }
++    while (operatorReportState == OPERATOR_REPORT_IDLE && serialRxBytesWaiting(operatorSerialPort)) {
++        operatorConsumeByte(serialRead(operatorSerialPort));
++    }
++}
++#else
+ void sendRcDataToHid(void)
+ {
+     int8_t report[9];
+@@ -85,6 +267,8 @@ void sendRcDataToHid(void)
+     sendReport((uint8_t*)report, sizeof(report));
+ }
+ 
++#endif
++
+ bool cdcDeviceIsMayBeActive(void)
+ {
+     return usbDevConfig()->type == COMPOSITE && usbIsConnected() && (getBatteryState() == BATTERY_NOT_PRESENT || batteryConfig()->voltageMeterSource == VOLTAGE_METER_NONE);
+diff --git a/src/main/pg/usb.c b/src/main/pg/usb.c
+index c13853a7a..72da86385 100644
+--- a/src/main/pg/usb.c
++++ b/src/main/pg/usb.c
+@@ -30,8 +30,14 @@
+ 
+ PG_REGISTER_WITH_RESET_TEMPLATE(usbDev_t, usbDevConfig, PG_USB_CONFIG, 0);
+ 
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#define MASHA_OPERATOR_USB_DEFAULT COMPOSITE
++#else
++#define MASHA_OPERATOR_USB_DEFAULT DEFAULT
++#endif
++
+ PG_RESET_TEMPLATE(usbDev_t, usbDevConfig,
+-    .type = DEFAULT,
++    .type = MASHA_OPERATOR_USB_DEFAULT,
+     .mscButtonPin = IO_TAG(USB_MSC_BUTTON_PIN),
+     .mscButtonUsePullup = MSC_BUTTON_IPU,
+     .detectPin = IO_TAG(USB_DETECT_PIN),
+diff --git a/src/main/target/STM32F405/target.mk b/src/main/target/STM32F405/target.mk
+index be633dc36..812cc16c5 100644
+--- a/src/main/target/STM32F405/target.mk
++++ b/src/main/target/STM32F405/target.mk
+@@ -1,3 +1,8 @@
+ TARGET_MCU        := STM32F405xx
+ TARGET_MCU_FAMILY := STM32F4
+ 
++# Экспортирует флаг во все единицы компиляции только для этой цели.
++ifeq ($(CONFIG),HAKRCF405V2)
++TARGET_FLAGS += -DUSE_MASHA_OPERATOR_KEYBOARD=1 -DUSE_MASHA_OPERATOR_MOUSE=1
++endif
++

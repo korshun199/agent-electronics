@@ -1,0 +1,226 @@
+diff --git a/src/main/drivers/stm32/vcpf4/usbd_conf.h b/src/main/drivers/stm32/vcpf4/usbd_conf.h
+index e29b01958..966308ac8 100644
+--- a/src/main/drivers/stm32/vcpf4/usbd_conf.h
++++ b/src/main/drivers/stm32/vcpf4/usbd_conf.h
+@@ -41,7 +41,11 @@
+ #define CDC_CMD_EP                      0x82  /* EP2 for CDC commands */
+ 
+ #define HID_IN_EP                       0x83
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#define HID_IN_PACKET                   8
++#else
+ #define HID_IN_PACKET                   9
++#endif
+ 
+ /* CDC Endpoints parameters: you can fine tune these values depending on the needed baudrates and performance. */
+ #ifdef USE_USB_OTG_HS
+diff --git a/src/main/fc/tasks.c b/src/main/fc/tasks.c
+index 09f03e570..4cb87f7df 100644
+--- a/src/main/fc/tasks.c
++++ b/src/main/fc/tasks.c
+@@ -205,9 +205,7 @@ static void taskUpdateRxMain(timeUs_t currentTimeUs)
+         updateArmingStatus();
+ 
+ #ifdef USE_USB_CDC_HID
+-        if (!ARMING_FLAG(ARMED)) {
+-            sendRcDataToHid();
+-        }
++        sendRcDataToHid();
+ #endif
+         rxState = RX_STATE_CHECK;
+         break;
+diff --git a/src/main/io/usb_cdc_hid.c b/src/main/io/usb_cdc_hid.c
+index 0af76b6b9..5c8438fa6 100644
+--- a/src/main/io/usb_cdc_hid.c
++++ b/src/main/io/usb_cdc_hid.c
+@@ -20,15 +20,21 @@
+ 
+ 
+ #include <stdbool.h>
++#include <string.h>
+ 
+ #include "platform.h"
+ 
+ #ifdef USE_USB_CDC_HID
+ 
+ #include "common/maths.h"
++#include "drivers/time.h"
+ #include "fc/rc_controls.h"
++#include "fc/runtime_config.h"
+ #include "rx/rx.h"
+ #include "pg/usb.h"
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#include "io/serial.h"
++#endif
+ #include "sensors/battery.h"
+ #include "usb_cdc_hid.h"
+ 
+@@ -59,6 +65,126 @@ const uint8_t hidChannelMapping[] = {
+     AUX12     // Button 8
+ };
+ 
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#define OPERATOR_FRAME_SIZE 4
++#define OPERATOR_FRAME_MAGIC 0xA5
++#define OPERATOR_KEY_MIN 0x04
++#define OPERATOR_KEY_MAX 0x38
++#define OPERATOR_MODIFIERS_ALLOWED 0x07
++#define OPERATOR_REPORT_HOLD_MS 30
++
++typedef enum {
++    OPERATOR_KEY_IDLE = 0,
++    OPERATOR_KEY_PRESSED,
++    OPERATOR_KEY_RELEASED
++} operatorKeyState_e;
++
++// UART4 — отдельный канал команд, который открывается только если порт свободен.
++static serialPort_t *operatorSerialPort;
++// Буфер кадра A5, модификатор, HID usage, XOR checksum.
++static uint8_t operatorFrame[OPERATOR_FRAME_SIZE];
++// Число принятых байтов текущего кадра.
++static uint8_t operatorFrameLength;
++// Состояние двух отчётов нажатия/отпускания; каждый держится дольше USB poll interval.
++static operatorKeyState_e operatorKeyState;
++// Момент следующего разрешённого перехода состояния HID.
++static timeMs_t operatorKeyDeadline;
++// Буфер стандартного восьмибайтового USB boot-keyboard отчёта.
++static uint8_t operatorKeyboardReport[8];
++
++// Отправляет короткое подтверждение ноутбуку по UART4.
++static void operatorSendAck(const char *ack)
++{
++    if (operatorSerialPort) {
++        serialWriteBuf(operatorSerialPort, (const uint8_t *)ack, 3);
++    }
++}
++
++// Завершает HID tap, сохраняя каждый отчёт до нескольких циклов опроса хоста.
++static void operatorServiceKey(void)
++{
++    if (operatorKeyState == OPERATOR_KEY_IDLE || (int32_t)(millis() - operatorKeyDeadline) < 0) {
++        return;
++    }
++
++    if (operatorKeyState == OPERATOR_KEY_PRESSED) {
++        memset(operatorKeyboardReport, 0, sizeof(operatorKeyboardReport));
++        sendReport(operatorKeyboardReport, sizeof(operatorKeyboardReport));
++        operatorKeyState = OPERATOR_KEY_RELEASED;
++        operatorKeyDeadline = millis() + OPERATOR_REPORT_HOLD_MS;
++        return;
++    }
++
++    operatorKeyState = OPERATOR_KEY_IDLE;
++    operatorSendAck("ACK");
++}
++
++// Принимает только кадр A5, modifier, HID usage, XOR checksum; произвольный ввод запрещён.
++static void operatorConsumeByte(uint8_t value)
++{
++    if (operatorFrameLength == 0 && value != OPERATOR_FRAME_MAGIC) {
++        return;
++    }
++    operatorFrame[operatorFrameLength++] = value;
++    if (operatorFrameLength < OPERATOR_FRAME_SIZE) {
++        return;
++    }
++    operatorFrameLength = 0;
++
++    const uint8_t modifier = operatorFrame[1];
++    const uint8_t key = operatorFrame[2];
++    const uint8_t checksum = operatorFrame[0] ^ modifier ^ key;
++    if (operatorFrame[0] != OPERATOR_FRAME_MAGIC || checksum != operatorFrame[3] ||
++        (modifier & ~OPERATOR_MODIFIERS_ALLOWED) != 0 ||
++        key < OPERATOR_KEY_MIN || key > OPERATOR_KEY_MAX || operatorKeyState != OPERATOR_KEY_IDLE) {
++        operatorSendAck("ERR");
++        return;
++    }
++
++    memset(operatorKeyboardReport, 0, sizeof(operatorKeyboardReport));
++    operatorKeyboardReport[0] = modifier;
++    operatorKeyboardReport[2] = key;
++    sendReport(operatorKeyboardReport, sizeof(operatorKeyboardReport));
++    operatorKeyState = OPERATOR_KEY_PRESSED;
++    operatorKeyDeadline = millis() + OPERATOR_REPORT_HOLD_MS;
++}
++
++// Читает UART4, выдерживает нажатие и отпускание, затем подтверждает tap.
++void sendRcDataToHid(void)
++{
++    if (!usbIsConnected()) {
++        if (operatorKeyState != OPERATOR_KEY_IDLE) {
++            memset(operatorKeyboardReport, 0, sizeof(operatorKeyboardReport));
++            operatorKeyState = OPERATOR_KEY_IDLE;
++            operatorSendAck("ERR");
++        }
++        operatorFrameLength = 0;
++        return;
++    }
++    if (!operatorSerialPort) {
++        operatorSerialPort = openSerialPort(SERIAL_PORT_UART4, FUNCTION_NONE, NULL, NULL, 115200, MODE_RXTX, SERIAL_NOT_INVERTED);
++        if (!operatorSerialPort) {
++            return;
++        }
++    }
++    operatorServiceKey();
++    if (ARMING_FLAG(ARMED)) {
++        bool commandDiscarded = false;
++        while (serialRxBytesWaiting(operatorSerialPort)) {
++            (void)serialRead(operatorSerialPort);
++            commandDiscarded = true;
++        }
++        operatorFrameLength = 0;
++        if (commandDiscarded) {
++            operatorSendAck("ARM");
++        }
++        return;
++    }
++    while (operatorKeyState == OPERATOR_KEY_IDLE && serialRxBytesWaiting(operatorSerialPort)) {
++        operatorConsumeByte(serialRead(operatorSerialPort));
++    }
++}
++#else
+ void sendRcDataToHid(void)
+ {
+     int8_t report[9];
+@@ -85,6 +211,8 @@ void sendRcDataToHid(void)
+     sendReport((uint8_t*)report, sizeof(report));
+ }
+ 
++#endif
++
+ bool cdcDeviceIsMayBeActive(void)
+ {
+     return usbDevConfig()->type == COMPOSITE && usbIsConnected() && (getBatteryState() == BATTERY_NOT_PRESENT || batteryConfig()->voltageMeterSource == VOLTAGE_METER_NONE);
+diff --git a/src/main/pg/usb.c b/src/main/pg/usb.c
+index c13853a7a..72da86385 100644
+--- a/src/main/pg/usb.c
++++ b/src/main/pg/usb.c
+@@ -30,8 +30,14 @@
+ 
+ PG_REGISTER_WITH_RESET_TEMPLATE(usbDev_t, usbDevConfig, PG_USB_CONFIG, 0);
+ 
++#ifdef USE_MASHA_OPERATOR_KEYBOARD
++#define MASHA_OPERATOR_USB_DEFAULT COMPOSITE
++#else
++#define MASHA_OPERATOR_USB_DEFAULT DEFAULT
++#endif
++
+ PG_RESET_TEMPLATE(usbDev_t, usbDevConfig,
+-    .type = DEFAULT,
++    .type = MASHA_OPERATOR_USB_DEFAULT,
+     .mscButtonPin = IO_TAG(USB_MSC_BUTTON_PIN),
+     .mscButtonUsePullup = MSC_BUTTON_IPU,
+     .detectPin = IO_TAG(USB_DETECT_PIN),
+diff --git a/src/main/target/STM32F405/target.mk b/src/main/target/STM32F405/target.mk
+index be633dc36..9a02c53af 100644
+--- a/src/main/target/STM32F405/target.mk
++++ b/src/main/target/STM32F405/target.mk
+@@ -1,3 +1,8 @@
+ TARGET_MCU        := STM32F405xx
+ TARGET_MCU_FAMILY := STM32F4
+ 
++# Экспортирует флаг во все единицы компиляции только для этой цели.
++ifeq ($(CONFIG),HAKRCF405V2)
++TARGET_FLAGS += -DUSE_MASHA_OPERATOR_KEYBOARD=1
++endif
++

@@ -13,6 +13,7 @@
 | `embedded-low-level/SKILL.md` | Bare-metal MCU, старт, linker, регистры, ISR, DMA, периферия и C/C++. |
 | `embedded-interfaces/SKILL.md` | Электрические интерфейсы, протоколы, измерения и устойчивые парсеры. |
 | `firmware-binary-analysis/SKILL.md` | Безопасный анализ и воспроизводимые минимальные патчи существующих firmware. |
+| `masha-operator-hid/SKILL.md` | Проектный UART4→USB HID мост на HAKRCF405V2; клавиатура проверена на Raspberry Pi, мышь экспериментальная. |
 | `unknown-board-recon/SKILL.md` | Исследование неизвестных плат по фото, маркировкам и безопасной трассировке. |
 
 ## Выбор навыка
